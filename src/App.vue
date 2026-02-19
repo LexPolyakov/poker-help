@@ -490,9 +490,6 @@ const equityRingOffset = computed(() =>
           <button class="btn btn-ai" :disabled="isAiLoading" @click="aiUnlocked ? analyzeWithAi() : (showCodeModal = true)">
             {{ isAiLoading ? "Анализ…" : "Анализ ситуации" }}
           </button>
-          <div v-if="aiAnalysis" class="ai-result">
-            <p class="ai-text">{{ aiAnalysis }}</p>
-          </div>
         </div>
 
         <div class="result-legend">
@@ -562,6 +559,22 @@ const equityRingOffset = computed(() =>
             />
             <p v-if="codeError" class="code-error-text">Неверный код</p>
             <button class="btn btn-ai code-btn" @click="tryUnlock">Разблокировать</button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="aiAnalysis" class="outs-overlay ai-overlay">
+          <div class="ai-modal">
+            <div class="ai-modal-header">
+              <h2 class="ai-modal-title">Aнализ и стратегия</h2>
+              <button class="outs-close" @click="aiAnalysis = ''">✕</button>
+            </div>
+            <div class="ai-modal-body">
+              <p class="ai-text">{{ aiAnalysis }}</p>
+            </div>
           </div>
         </div>
       </Transition>
@@ -861,18 +874,45 @@ const equityRingOffset = computed(() =>
   cursor: not-allowed;
 }
 
-.ai-result {
-  margin-top: 0.75rem;
-  padding: 0.85rem 1rem;
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+.ai-overlay {
+  padding: 0;
+}
+
+.ai-modal {
+  width: 100%;
+  height: 100%;
+  background: var(--surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.ai-modal-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #a78bfa;
+  margin: 0;
+}
+
+.ai-modal-body {
+  padding: 1.25rem;
 }
 
 .ai-text {
   margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.6;
+  font-size: 0.99rem;
+  line-height: 1.7;
   color: var(--text);
   white-space: pre-wrap;
 }
@@ -959,7 +999,7 @@ const equityRingOffset = computed(() =>
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 0;
 }
 
 .outs-modal {
