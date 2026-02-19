@@ -1,19 +1,18 @@
-<script setup lang="ts">
+<script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import type { CardOption } from "../composables/useDeck";
 
-const props = defineProps<{
-  modelValue: string;
-  options: CardOption[];
-  placeholder?: string;
-}>();
+const props = defineProps({
+  modelValue: { type: String, default: "" },
+  options: { type: Array, default: () => [] },
+  placeholder: { type: String, default: "—" },
+});
 
-const emit = defineEmits<{ "update:modelValue": [value: string] }>();
+const emit = defineEmits(["update:modelValue"]);
 
 const open = ref(false);
-const root = ref<HTMLElement | null>(null);
+const root = ref(null);
 
-const emptyOption: CardOption = {
+const emptyOption = {
   value: "",
   label: "—",
   rank: "—",
@@ -29,7 +28,7 @@ function toggle() {
   open.value = !open.value;
 }
 
-function select(opt: CardOption) {
+function select(opt) {
   emit("update:modelValue", opt.value);
   open.value = false;
 }
@@ -38,8 +37,12 @@ function close() {
   open.value = false;
 }
 
-function onKeydown(e: KeyboardEvent) {
+function onKeydown(e) {
   if (e.key === "Escape") close();
+}
+
+function handleClickOutside(e) {
+  if (root.value && !root.value.contains(e.target)) close();
 }
 
 onMounted(() => {
@@ -48,10 +51,6 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("click", handleClickOutside);
 });
-
-function handleClickOutside(e: MouseEvent) {
-  if (root.value && !root.value.contains(e.target as Node)) close();
-}
 </script>
 
 <template>

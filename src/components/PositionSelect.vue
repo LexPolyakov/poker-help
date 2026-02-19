@@ -1,15 +1,15 @@
-<script setup lang="ts">
+<script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
-const props = defineProps<{
-  modelValue: string
-  options: { value: string; label: string }[]
-}>()
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  options: { type: Array, default: () => [] },
+})
 
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits(['update:modelValue'])
 
 const open = ref(false)
-const root = ref<HTMLElement | null>(null)
+const root = ref(null)
 
 const selected = computed(() => props.options.find((o) => o.value === props.modelValue)?.label ?? '—')
 
@@ -17,13 +17,13 @@ function toggle() {
   open.value = !open.value
 }
 
-function select(opt: { value: string }) {
+function select(opt) {
   emit('update:modelValue', opt.value)
   open.value = false
 }
 
-function handleClickOutside(e: MouseEvent) {
-  if (root.value && !root.value.contains(e.target as Node)) open.value = false
+function handleClickOutside(e) {
+  if (root.value && !root.value.contains(e.target)) open.value = false
 }
 
 onMounted(() => document.addEventListener('click', handleClickOutside))

@@ -3,13 +3,13 @@ import PokerHand from 'poker-hand-evaluator'
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 const SUITS = ['s', 'h', 'd', 'c']
 
-function fullDeck(): string[] {
-  const cards: string[] = []
+function fullDeck() {
+  const cards = []
   for (const r of RANKS) for (const s of SUITS) cards.push(r + s)
   return cards
 }
 
-function shuffle<T>(arr: T[]): T[] {
+function shuffle(arr) {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -18,11 +18,11 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-function toUpper(cards: string[]): string {
+function toUpper(cards) {
   return cards.map((c) => c.toUpperCase()).join(' ')
 }
 
-function combos<T>(arr: T[], k: number): T[][] {
+function combos(arr, k) {
   if (k === 0) return [[]]
   if (arr.length < k) return []
   const [first, ...rest] = arr
@@ -32,7 +32,7 @@ function combos<T>(arr: T[], k: number): T[][] {
   ]
 }
 
-const RANK_NAMES: Record<string, string> = {
+const RANK_NAMES = {
   STRAIGHT_FLUSH: 'Стрит-флеш',
   FOUR_OF_A_KIND: 'Каре',
   FULL_HOUSE: 'Фулл-хаус',
@@ -44,7 +44,7 @@ const RANK_NAMES: Record<string, string> = {
   HIGH_CARD: 'Старшая карта',
 }
 
-function best5of7(cards: string[]): { score: number; rank: string } {
+function best5of7(cards) {
   if (cards.length < 5) return { score: Infinity, rank: '' }
   const pool = cards.length > 5 ? combos(cards, 5) : [cards]
   let bestScore = Infinity
@@ -60,26 +60,12 @@ function best5of7(cards: string[]): { score: number; rank: string } {
   return { score: bestScore, rank: RANK_NAMES[bestRank] || bestRank }
 }
 
-export interface EquityResult {
-  equity: number
-  ev: number
-  handName: string
-  potOdds: number
-}
-
 export function usePokerEquity() {
-  const calculate = (
-    heroCards: string[],
-    boardCards: string[],
-    numOpponents: number,
-    pot: number,
-    ourBet: number,
-    iterations: number = 2500
-  ): EquityResult => {
+  const calculate = (heroCards, boardCards, numOpponents, pot, ourBet, iterations = 2500) => {
     const hero = heroCards.filter(Boolean)
     const board = boardCards.filter(Boolean)
     if (hero.length !== 2 || new Set(hero).size !== 2 || board.length < 3)
-      return { equity: 0, ev: 0, handName: '', potOdds: 0 }
+      return { equity: 0, ev: 0, handName: '', potOdds: 0, outs: 0, drawOdds: 0 }
 
     const allKnown = [...hero, ...board]
     const used = new Set(allKnown)
@@ -119,10 +105,30 @@ export function usePokerEquity() {
     const ev = Math.round((e * potAfter - (1 - e) * ourBet) * 100) / 100
     const potOdds = ourBet > 0 ? Math.round((ourBet / (pot + ourBet)) * 10000) / 100 : 0
 
-    const currentBoard = board.length >= 5 ? board : [...board, ...deck.slice(0, 5 - board.length)]
-    const { rank: handName } = best5of7([...hero, ...currentBoard])
+    const knownCards = [...hero, ...board]
+    const handName = knownCards.length >= 5 ? best5of7(knownCards).rank : ''
 
-    return { equity, ev, handName, potOdds }
+    let outs = 0
+    let drawOdds = 0
+    const streetsLeft = 5 - board.length
+    if (streetsLeft > 0 && knownCards.length >= 5) {
+      const currentScore = best5of7(knownCards).score
+      for (const c of deck) {
+        const improved = best5of7([...knownCards, c])
+        if (improved.score < currentScore) outs++
+      }
+      const rem = deck.length
+      if (streetsLeft === 1) {
+        drawOdds = Math.round((outs / rem) * 10000) / 100
+      } else {
+        const miss = rem > 0 && rem > outs
+          ? ((rem - outs) / rem) * ((rem - 1 - outs) / (rem - 1))
+          : 0
+        drawOdds = Math.round((1 - miss) * 10000) / 100
+      }
+    }
+
+    return { equity, ev, handName, potOdds, outs, drawOdds }
   }
 
   return { calculate }

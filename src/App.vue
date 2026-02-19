@@ -1,10 +1,9 @@
-<script setup lang="ts">
-import { ref, computed, nextTick, type Ref } from "vue";
+<script setup>
+import { ref, computed, nextTick } from "vue";
 import CardSelect from "./components/CardSelect.vue";
 import PositionSelect from "./components/PositionSelect.vue";
-import { useDeck } from "./composables/useDeck";
-import type { EquityResult } from "./composables/usePokerEquity";
-import EquityWorker from "./worker/equity.worker?worker";
+import { useDeck } from "./composables/useDeck.js";
+import EquityWorker from "./worker/equity.worker.js?worker";
 
 const { options } = useDeck();
 
@@ -20,12 +19,12 @@ const ourBet = ref(0);
 const playersInPot = ref(2);
 const heroPosition = ref("BTN");
 
-const result = ref<EquityResult | null>(null);
+const result = ref(null);
 const isCalculating = ref(false);
-const resultRef = ref<HTMLElement | null>(null);
+const resultRef = ref(null);
 
-function onDigitsInput(e: Event, r: Ref<number>, min: number, max?: number) {
-  const el = e.target as HTMLInputElement;
+function onDigitsInput(e, r, min, max) {
+  const el = e.target;
   let v = el.value.replace(/\D/g, "");
   if (v === "") {
     el.value = "";
@@ -43,30 +42,30 @@ function onDigitsInput(e: Event, r: Ref<number>, min: number, max?: number) {
   el.value = String(n);
 }
 
-function onDigitsBlur(e: Event, r: Ref<number>, min: number) {
-  const el = e.target as HTMLInputElement;
+function onDigitsBlur(e, r, min) {
+  const el = e.target;
   if (el.value === "" || Number(el.value) < min) {
     r.value = min;
     el.value = String(min);
   }
 }
 
-function onPotInput(e: Event) {
+function onPotInput(e) {
   onDigitsInput(e, pot, 0);
 }
-function onOurBetInput(e: Event) {
+function onOurBetInput(e) {
   onDigitsInput(e, ourBet, 0);
 }
-function onPlayersInPotInput(e: Event) {
+function onPlayersInPotInput(e) {
   onDigitsInput(e, playersInPot, 2);
 }
-function onPotBlur(e: Event) {
+function onPotBlur(e) {
   onDigitsBlur(e, pot, 0);
 }
-function onOurBetBlur(e: Event) {
+function onOurBetBlur(e) {
   onDigitsBlur(e, ourBet, 0);
 }
-function onPlayersBlur(e: Event) {
+function onPlayersBlur(e) {
   onDigitsBlur(e, playersInPot, 2);
 }
 
@@ -168,22 +167,22 @@ const canCalculate = computed(() => {
   return s.size === 5;
 });
 
-let worker: Worker | null = null;
+let worker = null;
 
 function calculate() {
   if (!canCalculate.value || isCalculating.value) return;
   isCalculating.value = true;
   result.value = null;
 
-  worker?.terminate();
+  if (worker) worker.terminate();
   worker = new EquityWorker();
-  worker.onmessage = (e: MessageEvent<EquityResult>) => {
+  worker.onmessage = (e) => {
     result.value = e.data;
     isCalculating.value = false;
     nextTick(() =>
       resultRef.value?.scrollIntoView({ behavior: "smooth", block: "start" })
     );
-    worker?.terminate();
+    if (worker) worker.terminate();
     worker = null;
   };
   worker.postMessage({
@@ -215,7 +214,7 @@ function resetAll() {
   playersInPot.value = 2;
   heroPosition.value = "BTN";
   result.value = null;
-  worker?.terminate();
+  if (worker) worker.terminate();
   worker = null;
   isCalculating.value = false;
 }
