@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, type Ref } from "vue";
 import CardSelect from "./components/CardSelect.vue";
 import PositionSelect from "./components/PositionSelect.vue";
 import { useDeck } from "./composables/useDeck";
@@ -17,34 +17,57 @@ const turn = ref("");
 const river = ref("");
 const pot = ref(100);
 const ourBet = ref(0);
-const playersInPot = ref(1);
+const playersInPot = ref(2);
 const heroPosition = ref("BTN");
 
 const result = ref<EquityResult | null>(null);
 const isCalculating = ref(false);
 const resultRef = ref<HTMLElement | null>(null);
 
-function onDigitsInput(
-  e: Event,
-  r: { value: number },
-  min: number,
-  max?: number
-) {
+function onDigitsInput(e: Event, r: Ref<number>, min: number, max?: number) {
   const el = e.target as HTMLInputElement;
   let v = el.value.replace(/\D/g, "");
-  v = v.replace(/^0+/, "") || "0";
-  el.value = v;
-  if (v === "") r.value = min;
-  else if (v === "0") {
-    r.value = min === 0 ? 0 : min;
-    el.value = String(r.value);
-  } else {
-    let n = Number(v);
-    if (max != null) n = Math.min(max, Math.max(min, n));
-    else n = Math.max(min, n);
-    r.value = n;
-    el.value = String(n);
+  if (v === "") {
+    el.value = "";
+    return;
   }
+  v = v.replace(/^0+/, "") || "0";
+  let n = Number(v);
+  if (v === "0" && min > 0) {
+    el.value = v;
+    return;
+  }
+  if (max != null) n = Math.min(max, Math.max(min, n));
+  else n = Math.max(min, n);
+  r.value = n;
+  el.value = String(n);
+}
+
+function onDigitsBlur(e: Event, r: Ref<number>, min: number) {
+  const el = e.target as HTMLInputElement;
+  if (el.value === "" || Number(el.value) < min) {
+    r.value = min;
+    el.value = String(min);
+  }
+}
+
+function onPotInput(e: Event) {
+  onDigitsInput(e, pot, 0);
+}
+function onOurBetInput(e: Event) {
+  onDigitsInput(e, ourBet, 0);
+}
+function onPlayersInPotInput(e: Event) {
+  onDigitsInput(e, playersInPot, 2);
+}
+function onPotBlur(e: Event) {
+  onDigitsBlur(e, pot, 0);
+}
+function onOurBetBlur(e: Event) {
+  onDigitsBlur(e, ourBet, 0);
+}
+function onPlayersBlur(e: Event) {
+  onDigitsBlur(e, playersInPot, 2);
 }
 
 const POSITIONS = [
@@ -189,7 +212,7 @@ function resetAll() {
   river.value = "";
   pot.value = 100;
   ourBet.value = 0;
-  playersInPot.value = 1;
+  playersInPot.value = 2;
   heroPosition.value = "BTN";
   result.value = null;
   worker?.terminate();
@@ -294,7 +317,8 @@ const equityRingOffset = computed(() =>
               inputmode="numeric"
               class="input-field"
               placeholder="100"
-              @input="onDigitsInput($event, pot, 0)"
+              @input="onPotInput"
+              @blur="onPotBlur"
             />
           </div>
           <div class="field">
@@ -305,7 +329,8 @@ const equityRingOffset = computed(() =>
               inputmode="numeric"
               class="input-field"
               placeholder="0"
-              @input="onDigitsInput($event, ourBet, 0)"
+              @input="onOurBetInput"
+              @blur="onOurBetBlur"
             />
           </div>
         </div>
@@ -317,8 +342,9 @@ const equityRingOffset = computed(() =>
               type="text"
               inputmode="numeric"
               class="input-field"
-              placeholder="1"
-              @input="onDigitsInput($event, playersInPot, 1, 10)"
+              placeholder="2"
+              @input="onPlayersInPotInput"
+              @blur="onPlayersBlur"
             />
           </div>
           <div class="field position-field">
@@ -343,65 +369,67 @@ const equityRingOffset = computed(() =>
       </div>
 
       <section v-if="result" ref="resultRef" class="card-panel section result">
-        <p v-if="result.handName" class="hand-name">{{ result.handName }}</p>
+        <div class="result-row result-row-main">
+          <p v-if="result.handName" class="hand-name">{{ result.handName }}</p>
+          <div class="equity-ring">
+            <svg width="88" height="88" class="progress-ring">
+              <circle class="progress-ring-bg" stroke-width="8" :r="equityRingRadius" cx="44" cy="44" />
+              <circle class="progress-ring-fill" :stroke="isPlusEV ? 'var(--positive)' : 'var(--negative)'" stroke-width="8" :r="equityRingRadius" cx="44" cy="44" :stroke-dasharray="equityRingCircumference" :stroke-dashoffset="equityRingOffset" />
+            </svg>
+            <span class="equity-value">{{ result.equity }}%</span>
+          </div>
+          <p class="ev-inline">
+            <span class="ev-label">EV</span>
+            <span class="ev-value" :class="isPlusEV ? 'ev-positive' : 'ev-negative'">
+              {{ result.ev > 0 ? "+" : "" }}{{ result.ev }}
+            </span>
+          </p>
+        </div>
 
-        <div class="result-grid">
-          <div class="result-block">
-            <div class="equity-ring">
-              <svg width="88" height="88" class="progress-ring">
-                <circle
-                  class="progress-ring-bg"
-                  stroke-width="8"
-                  :r="equityRingRadius"
-                  cx="44"
-                  cy="44"
-                />
-                <circle
-                  class="progress-ring-fill"
-                  :stroke="isPlusEV ? 'var(--positive)' : 'var(--negative)'"
-                  stroke-width="8"
-                  :r="equityRingRadius"
-                  cx="44"
-                  cy="44"
-                  :stroke-dasharray="equityRingCircumference"
-                  :stroke-dashoffset="equityRingOffset"
-                />
-              </svg>
-              <span class="equity-value">{{ result.equity }}%</span>
-            </div>
+        <div class="result-row result-row-stats">
+          <div v-if="result.potOdds > 0" class="stat-col">
+            <span class="stat-label">Пот-оддсы</span>
+            <span class="stat-value" :class="result.equity >= result.potOdds ? 'ev-positive' : 'ev-negative'">{{ result.potOdds }}%</span>
           </div>
-          <div class="result-block ev-block">
-            <div class="ev-row">
-              <div>
-                <p class="ev-label">EV</p>
-                <p
-                  class="ev-value"
-                  :class="isPlusEV ? 'ev-positive' : 'ev-negative'"
-                >
-                  {{ result.ev > 0 ? "+" : "" }}{{ result.ev }}
-                </p>
-              </div>
-              <div v-if="result.potOdds > 0">
-                <p class="ev-label">Пот-оддсы</p>
-                <p
-                  class="ev-value"
-                  :class="
-                    result.equity >= result.potOdds
-                      ? 'ev-positive'
-                      : 'ev-negative'
-                  "
-                >
-                  {{ result.potOdds }}%
-                </p>
-              </div>
-            </div>
-            <p
-              class="ev-verdict"
-              :class="isPlusEV ? 'ev-positive' : 'ev-negative'"
-            >
-              {{ isPlusEV ? "Плюсовое решение" : "Минусовое решение" }}
-            </p>
+          <div v-if="result.outs > 0" class="stat-col">
+            <span class="stat-label">Ауты</span>
+            <span class="stat-value ev-outs">{{ result.outs }}</span>
           </div>
+          <div v-if="result.drawOdds > 0" class="stat-col">
+            <span class="stat-label">Доезд</span>
+            <span class="stat-value ev-outs">{{ result.drawOdds }}%</span>
+          </div>
+        </div>
+
+        <div class="result-row result-row-verdict">
+          <p class="ev-verdict" :class="isPlusEV ? 'ev-positive' : 'ev-negative'">
+            {{ isPlusEV ? "Плюсовое решение" : "Минусовое решение" }}
+          </p>
+        </div>
+        <div class="result-legend">
+          <ul class="legend-list">
+            <li>
+              <strong>Эквити (круг)</strong> — доля банка, которую ваша рука выигрывает в среднем в этой ситуации (вероятность победы).
+            </li>
+            <li>
+              <strong>Название комбинации</strong> — лучшая возможная рука по вашим картам и борду (флоп/терн/ривер).
+            </li>
+            <li>
+              <strong>EV (ожидаемая ценность)</strong> — средний выигрыш или проигрыш от действия в условных единицах; «+» — выгодно, «−» — невыгодно.
+            </li>
+            <li>
+              <strong>Пот-оддсы</strong> — минимальный процент побед, при котором колл безубыточен (сравнивайте с эквити: эквити ≥ пот-оддсы — колл ок).
+            </li>
+            <li>
+              <strong>Ауты</strong> — количество карт в колоде, которые улучат вашу текущую комбинацию на следующей улице.
+            </li>
+            <li>
+              <strong>Доезд</strong> — вероятность (%) словить хотя бы один аут на оставшихся улицах (терн/ривер).
+            </li>
+            <li>
+              <strong>Плюсовое/минусовое решение</strong> — вывод по EV: положительный EV = выгодно делать ставку/колл, отрицательный = невыгодно.
+            </li>
+          </ul>
         </div>
       </section>
     </main>
@@ -509,13 +537,13 @@ const equityRingOffset = computed(() =>
   font-size: 1rem;
   cursor: pointer;
   transition: box-shadow 0.2s, opacity 0.2s;
-  box-shadow: 0 0 15px rgba(14, 165, 233, 0.6),
-    0 0 30px rgba(14, 165, 233, 0.35), inset 0 0 20px rgba(14, 165, 233, 0.1);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.35),
+    0 0 20px rgba(14, 165, 233, 0.2), inset 0 0 12px rgba(14, 165, 233, 0.06);
 }
 
 .btn-neon:hover:not(:disabled) {
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.8),
-    0 0 40px rgba(14, 165, 233, 0.45), inset 0 0 25px rgba(14, 165, 233, 0.15);
+  box-shadow: 0 0 14px rgba(14, 165, 233, 0.5),
+    0 0 28px rgba(14, 165, 233, 0.28), inset 0 0 16px rgba(14, 165, 233, 0.09);
 }
 
 .btn-neon:disabled {
@@ -546,26 +574,40 @@ const equityRingOffset = computed(() =>
 }
 
 .hand-name {
-  font-size: 2.15rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: #0ea5e9;
-  text-align: center;
-  margin: 0 0 1rem;
-  text-shadow: 0 0 8px rgba(14, 165, 233, 0.7), 0 0 20px rgba(14, 165, 233, 0.4),
-    0 0 40px rgba(14, 165, 233, 0.2);
+  margin: 0;
+  text-shadow: 0 0 6px rgba(14, 165, 233, 0.4), 0 0 14px rgba(14, 165, 233, 0.2);
 }
 
-.result-grid {
+.result-row {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 1.25rem;
+}
+
+.result-row-main {
+  padding-bottom: 0.75rem;
+}
+
+.result-row-stats {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+  gap: 2rem;
+}
+
+.result-row-verdict {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
 }
 
 .equity-ring {
   position: relative;
   width: 88px;
   height: 88px;
+  flex-shrink: 0;
 }
 
 .equity-value {
@@ -574,48 +616,97 @@ const equityRingOffset = computed(() =>
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 12px;
   font-weight: 600;
 }
 
-.result-label {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin: 0.35rem 0 0;
-}
-
-.ev-block {
-  text-align: left;
-}
-
-.ev-row {
+.ev-inline {
   display: flex;
-  gap: 1.5rem;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
 }
 
 .ev-label {
   font-size: 0.8rem;
   color: var(--text-muted);
-  margin: 0 0 0.25rem;
 }
 
 .ev-value {
   font-size: 1.35rem;
   font-weight: 700;
-  margin: 0;
+}
+
+.stat-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.ev-outs {
+  color: #a78bfa;
 }
 
 .ev-verdict {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
-  margin: 0.5rem 0 0;
+  margin: 0;
+  text-align: center;
+}
+
+.result-legend {
+  margin-top: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.legend-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 0.6rem;
+}
+
+.legend-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.legend-list li {
+  margin-bottom: 0.4rem;
+}
+
+.legend-list li:last-child {
+  margin-bottom: 0;
+}
+
+.legend-list strong {
+  color: var(--text);
 }
 
 @media (max-width: 420px) {
-  .result-grid {
-    gap: 1rem;
+  .result-row-stats {
+    gap: 1.25rem;
   }
-  .ev-value {
+  .hand-name {
+    font-size: 1.25rem;
+  }
+  .ev-value,
+  .stat-value {
     font-size: 1.1rem;
   }
 }
