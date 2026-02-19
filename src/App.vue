@@ -236,6 +236,21 @@ function resetAll() {
 
 const aiAnalysis = ref("");
 const isAiLoading = ref(false);
+const aiUnlocked = ref(false);
+const showCodeModal = ref(false);
+const codeInput = ref("");
+const codeError = ref(false);
+
+function tryUnlock() {
+  if (codeInput.value === import.meta.env.VITE_ANALYTICS_KEY) {
+    aiUnlocked.value = true;
+    showCodeModal.value = false;
+    codeInput.value = "";
+    codeError.value = false;
+  } else {
+    codeError.value = true;
+  }
+}
 
 async function callAi(prompt) {
   const res = await fetch('/api/analyze', {
@@ -472,8 +487,8 @@ const equityRingOffset = computed(() =>
         </div>
 
         <div class="ai-section">
-          <button class="btn btn-ai" :disabled="isAiLoading" @click="analyzeWithAi">
-            {{ isAiLoading ? "Анализ…" : "Aнализ ситуации" }}
+          <button class="btn btn-ai" :disabled="isAiLoading" @click="aiUnlocked ? analyzeWithAi() : (showCodeModal = true)">
+            {{ isAiLoading ? "Анализ…" : "Анализ ситуации" }}
           </button>
           <div v-if="aiAnalysis" class="ai-result">
             <p class="ai-text">{{ aiAnalysis }}</p>
@@ -524,6 +539,29 @@ const equityRingOffset = computed(() =>
                 <span class="out-hand">{{ out.handName }}</span>
               </div>
             </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showCodeModal" class="outs-overlay" @click.self="showCodeModal = false">
+          <div class="code-modal">
+            <h3 class="code-title">Введите код доступа</h3>
+            <input
+              v-model="codeInput"
+              type="text"
+              inputmode="numeric"
+              maxlength="3"
+              class="code-input"
+              :class="{ 'code-error': codeError }"
+              placeholder="•••"
+              @input="codeError = false"
+              @keydown.enter="tryUnlock"
+            />
+            <p v-if="codeError" class="code-error-text">Неверный код</p>
+            <button class="btn btn-ai code-btn" @click="tryUnlock">Разблокировать</button>
           </div>
         </div>
       </Transition>
@@ -837,6 +875,63 @@ const equityRingOffset = computed(() =>
   line-height: 1.6;
   color: var(--text);
   white-space: pre-wrap;
+}
+
+.code-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem 1.5rem;
+  width: 280px;
+  text-align: center;
+}
+
+.code-title {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.code-input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.5em;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.code-input:focus {
+  border-color: #a78bfa;
+}
+
+.code-input.code-error {
+  border-color: var(--negative);
+  animation: shake 0.3s;
+}
+
+.code-error-text {
+  color: var(--negative);
+  font-size: 0.8rem;
+  margin: 0.4rem 0 0;
+}
+
+.code-btn {
+  margin-top: 1rem;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
 }
 
 .stat-clickable {
