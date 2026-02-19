@@ -217,6 +217,7 @@ function resetAll() {
   if (worker) worker.terminate();
   worker = null;
   isCalculating.value = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 const isPlusEV = computed(() => result.value != null && result.value.ev > 0);
@@ -234,7 +235,6 @@ const equityRingOffset = computed(() =>
   <div class="page">
     <header class="header">
       <h1 class="title">Poker Help</h1>
-      <p class="subtitle">Эквити и EV с учётом позиции и банка</p>
     </header>
 
     <main class="main">
@@ -452,7 +452,8 @@ const equityRingOffset = computed(() =>
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 0.25rem;
-  color: var(--text);
+  color: #0ea5e9;
+  text-shadow: 0 0 6px rgba(14, 165, 233, 0.4), 0 0 14px rgba(14, 165, 233, 0.2);
 }
 
 .subtitle {
