@@ -110,12 +110,16 @@ export function usePokerEquity() {
 
     let outs = 0
     let drawOdds = 0
+    const outsList = []
     const streetsLeft = 5 - board.length
     if (streetsLeft > 0 && knownCards.length >= 5) {
       const currentScore = best5of7(knownCards).score
       for (const c of deck) {
         const improved = best5of7([...knownCards, c])
-        if (improved.score < currentScore) outs++
+        if (improved.score < currentScore) {
+          outs++
+          outsList.push({ card: c, handName: improved.rank })
+        }
       }
       const rem = deck.length
       if (streetsLeft === 1) {
@@ -128,7 +132,7 @@ export function usePokerEquity() {
       }
     }
 
-    return { equity, ev, handName, potOdds, outs, drawOdds }
+    return { equity, ev, handName, potOdds, outs, drawOdds, outsList }
   }
 
   return { calculate }

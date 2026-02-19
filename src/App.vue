@@ -5,7 +5,20 @@ import PositionSelect from "./components/PositionSelect.vue";
 import { useDeck } from "./composables/useDeck.js";
 import EquityWorker from "./worker/equity.worker.js?worker";
 
-const { options } = useDeck();
+const { options, SUIT_SYMBOLS, SUIT_COLORS, RANK_LABELS_EN } = useDeck();
+
+const RANK_LABELS = { T: '10', J: 'J', Q: 'Q', K: 'K', A: 'A' };
+function cardDisplay(c) {
+  const r = c[0];
+  const s = c[1] || '';
+  return {
+    rank: RANK_LABELS[r] || r,
+    suit: SUIT_SYMBOLS[s] || s,
+    color: SUIT_COLORS[s] || '#e4e4e7',
+  };
+}
+
+const showOutsModal = ref(false);
 
 const card1 = ref("");
 const card2 = ref("");
@@ -57,7 +70,7 @@ function onOurBetInput(e) {
   onDigitsInput(e, ourBet, 0);
 }
 function onPlayersInPotInput(e) {
-  onDigitsInput(e, playersInPot, 2);
+  onDigitsInput(e, playersInPot, 2, 10);
 }
 function onPotBlur(e) {
   onDigitsBlur(e, pot, 0);
@@ -390,7 +403,7 @@ const equityRingOffset = computed(() =>
             <span class="stat-label">Пот-оддсы</span>
             <span class="stat-value" :class="result.equity >= result.potOdds ? 'ev-positive' : 'ev-negative'">{{ result.potOdds }}%</span>
           </div>
-          <div v-if="result.outs > 0" class="stat-col">
+          <div v-if="result.outs > 0" class="stat-col stat-clickable" @click="showOutsModal = true">
             <span class="stat-label">Ауты</span>
             <span class="stat-value ev-outs">{{ result.outs }}</span>
           </div>
@@ -432,6 +445,27 @@ const equityRingOffset = computed(() =>
         </div>
       </section>
     </main>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showOutsModal && result && result.outsList?.length" class="outs-overlay" @click.self="showOutsModal = false">
+          <div class="outs-modal">
+            <div class="outs-header">
+              <h2 class="outs-title">Ауты — {{ result.outs }} карт</h2>
+              <button class="outs-close" @click="showOutsModal = false">✕</button>
+            </div>
+            <div class="outs-grid">
+              <div v-for="(out, i) in result.outsList" :key="i" class="out-card">
+                <span class="out-card-face">
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                </span>
+                <span class="out-hand">{{ out.handName }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -696,6 +730,130 @@ const equityRingOffset = computed(() =>
 
 .legend-list strong {
   color: var(--text);
+}
+
+.stat-clickable {
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  transition: background 0.15s;
+  animation: pulse-outs 2s ease-in-out infinite;
+}
+.stat-clickable:hover {
+  background: var(--surface-hover);
+  animation: none;
+}
+
+@keyframes pulse-outs {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.outs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.outs-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.outs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.outs-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #a78bfa;
+  margin: 0;
+}
+
+.outs-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+.outs-close:hover {
+  color: var(--text);
+}
+
+.outs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+}
+
+.out-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--surface-hover);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.out-card-face {
+  font-size: 1.1rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.out-rank {
+  color: var(--text);
+}
+
+.out-hand {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-active .outs-modal,
+.modal-leave-active .outs-modal {
+  transition: transform 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from .outs-modal {
+  transform: scale(0.95);
+}
+.modal-leave-to .outs-modal {
+  transform: scale(0.95);
 }
 
 @media (max-width: 420px) {
