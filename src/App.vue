@@ -227,10 +227,62 @@ function resetAll() {
   playersInPot.value = 2;
   heroPosition.value = "BTN";
   result.value = null;
+  aiAnalysis.value = "";
   if (worker) worker.terminate();
   worker = null;
   isCalculating.value = false;
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+const aiAnalysis = ref("");
+const isAiLoading = ref(false);
+
+async function callAi(prompt) {
+  const res = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt })
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.content;
+}
+
+function cardLabel(c) {
+  const d = cardDisplay(c);
+  return d.rank + d.suit;
+}
+
+async function analyzeWithAi() {
+  if (!result.value || isAiLoading.value) return;
+  isAiLoading.value = true;
+  aiAnalysis.value = "";
+
+  const hand = `${cardLabel(card1.value)} ${cardLabel(card2.value)}`;
+  const board = [flop1.value, flop2.value, flop3.value, turn.value, river.value]
+    .filter(Boolean).map(cardLabel).join(' ');
+  const r = result.value;
+
+  const prompt = `Ты — профессиональный покерный тренер. Проанализируй ситуацию кратко (3-5 предложений) на русском.
+
+Рука: ${hand}
+Борд: ${board}
+Позиция: ${heroPosition.value}
+Игроков в банке: ${playersInPot.value}
+Банк: ${pot.value}, Ставка/колл: ${ourBet.value}
+Эквити: ${r.equity}%, EV: ${r.ev}, Пот-оддсы: ${r.potOdds}%
+Комбинация: ${r.handName || 'нет'}
+Ауты: ${r.outs}, Шанс доезда: ${r.drawOdds}%
+
+Дай рекомендацию: колл/рейз/фолд и почему. Учти позицию и число игроков.`;
+
+  try {
+    aiAnalysis.value = await callAi(prompt);
+  } catch (e) {
+    aiAnalysis.value = "Ошибка: " + e.message;
+  } finally {
+    isAiLoading.value = false;
+  }
 }
 
 const isPlusEV = computed(() => result.value != null && result.value.ev > 0);
@@ -418,6 +470,16 @@ const equityRingOffset = computed(() =>
             {{ isPlusEV ? "Плюсовое решение" : "Минусовое решение" }}
           </p>
         </div>
+
+        <div class="ai-section">
+          <button class="btn btn-ai" :disabled="isAiLoading" @click="analyzeWithAi">
+            {{ isAiLoading ? "Анализ…" : "Aнализ ситуации" }}
+          </button>
+          <div v-if="aiAnalysis" class="ai-result">
+            <p class="ai-text">{{ aiAnalysis }}</p>
+          </div>
+        </div>
+
         <div class="result-legend">
           <ul class="legend-list">
             <li>
@@ -730,6 +792,51 @@ const equityRingOffset = computed(() =>
 
 .legend-list strong {
   color: var(--text);
+}
+
+.ai-section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.btn-ai {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: opacity 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.3);
+}
+
+.btn-ai:hover:not(:disabled) {
+  box-shadow: 0 0 16px rgba(167, 139, 250, 0.5);
+}
+
+.btn-ai:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-result {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ai-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
 }
 
 .stat-clickable {
