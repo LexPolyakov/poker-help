@@ -1,4 +1,4 @@
-import PokerHand from 'poker-hand-evaluator'
+import { evaluate, getCardCode, rank, HandRank } from '@pokertools/evaluator'
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 const SUITS = ['s', 'h', 'd', 'c']
@@ -18,46 +18,94 @@ function shuffle(arr) {
   return a
 }
 
-function toUpper(cards) {
-  return cards.map((c) => c.toUpperCase()).join(' ')
-}
-
-function combos(arr, k) {
-  if (k === 0) return [[]]
-  if (arr.length < k) return []
-  const [first, ...rest] = arr
-  return [
-    ...combos(rest, k - 1).map((c) => [first, ...c]),
-    ...combos(rest, k),
-  ]
-}
-
 const RANK_NAMES = {
-  STRAIGHT_FLUSH: 'Стрит-флеш',
-  FOUR_OF_A_KIND: 'Каре',
-  FULL_HOUSE: 'Фулл-хаус',
-  FLUSH: 'Флеш',
-  STRAIGHT: 'Стрит',
-  THREE_OF_A_KIND: 'Тройка',
-  TWO_PAIRS: 'Две пары',
-  ONE_PAIR: 'Пара',
-  HIGH_CARD: 'Старшая карта',
+  [HandRank.StraightFlush]: 'Стрит-флеш',
+  [HandRank.FourOfAKind]: 'Каре',
+  [HandRank.FullHouse]: 'Фулл-хаус',
+  [HandRank.Flush]: 'Флеш',
+  [HandRank.Straight]: 'Стрит',
+  [HandRank.ThreeOfAKind]: 'Тройка',
+  [HandRank.TwoPair]: 'Две пары',
+  [HandRank.OnePair]: 'Пара',
+  [HandRank.HighCard]: 'Старшая карта',
 }
+
+const CARD_CODES = Object.fromEntries(
+  fullDeck().map((card) => [card, getCardCode(card)])
+)
 
 function best5of7(cards) {
-  if (cards.length < 5) return { score: Infinity, rank: '' }
-  const pool = cards.length > 5 ? combos(cards, 5) : [cards]
-  let bestScore = Infinity
-  let bestRank = ''
-  for (const five of pool) {
-    const ph = new PokerHand(toUpper(five))
-    const s = ph.getScore()
-    if (s < bestScore) {
-      bestScore = s
-      bestRank = ph.getRank()
+  if (cards.length < 5 || cards.length > 7 || new Set(cards).size !== cards.length) {
+    return { score: Infinity, rank: '', rankValue: Infinity }
+  }
+
+  const codes = []
+  for (const card of cards) {
+    const code = CARD_CODES[card]
+    if (code == null) return { score: Infinity, rank: '', rankValue: Infinity }
+    codes.push(code)
+  }
+
+  const score = evaluate(codes)
+  const rankValue = rank(codes)
+  return { score, rank: RANK_NAMES[rankValue] || '', rankValue }
+}
+
+function simulateScenario(hero, boardBase, deckBase, numOpponents, trials) {
+  const missingBoard = 5 - boardBase.length
+  let equityShareSum = 0
+  let losses = 0
+  let counted = 0
+  let topOppRank = ''
+  let topOppScore = Infinity
+
+  for (let i = 0; i < trials; i++) {
+    const s = shuffle(deckBase)
+    const filledBoard = missingBoard > 0 ? [...boardBase, ...s.slice(0, missingBoard)] : boardBase
+    const heroRes = best5of7([...hero, ...filledBoard])
+    if (heroRes.score === Infinity) continue
+
+    let oppStart = missingBoard
+    let bestScore = heroRes.score
+    let winners = 1
+    let bestOppInTrialScore = Infinity
+    let bestOppInTrialRank = ''
+
+    for (let o = 0; o < numOpponents; o++) {
+      const oppRes = best5of7([s[oppStart], s[oppStart + 1], ...filledBoard])
+      oppStart += 2
+
+      if (oppRes.score < bestOppInTrialScore) {
+        bestOppInTrialScore = oppRes.score
+        bestOppInTrialRank = oppRes.rank
+      }
+
+      if (oppRes.score < bestScore) {
+        bestScore = oppRes.score
+        winners = 1
+      } else if (oppRes.score === bestScore) {
+        winners++
+      }
+    }
+
+    const heroShare = heroRes.score === bestScore ? 1 / winners : 0
+    equityShareSum += heroShare
+    counted++
+
+    if (heroShare === 0) {
+      losses++
+      if (bestOppInTrialScore < topOppScore) {
+        topOppScore = bestOppInTrialScore
+        topOppRank = bestOppInTrialRank
+      }
     }
   }
-  return { score: bestScore, rank: RANK_NAMES[bestRank] || bestRank }
+
+  return {
+    equity: counted > 0 ? equityShareSum / counted : 0,
+    lossRate: counted > 0 ? losses / counted : 0,
+    topOppRank,
+  }
 }
 
 export function usePokerEquity() {
@@ -65,41 +113,26 @@ export function usePokerEquity() {
     const hero = heroCards.filter(Boolean)
     const board = boardCards.filter(Boolean)
     if (hero.length !== 2 || new Set(hero).size !== 2 || board.length < 3)
-      return { equity: 0, ev: 0, handName: '', potOdds: 0, outs: 0, drawOdds: 0 }
+      return {
+        equity: 0,
+        ev: 0,
+        handName: '',
+        potOdds: 0,
+        outs: 0,
+        drawOdds: 0,
+        outsList: [],
+        dirtyOuts: 0,
+        dirtyOutsList: [],
+        reverseOuts: 0,
+        reverseDrawOdds: 0,
+        reverseOutsList: [],
+      }
 
     const allKnown = [...hero, ...board]
     const used = new Set(allKnown)
     const deck = fullDeck().filter((c) => !used.has(c))
-    const missingBoard = 5 - board.length
-
-    let wins = 0
-    let counted = 0
-
-    for (let i = 0; i < iterations; i++) {
-      const rest = shuffle(deck)
-      const filledBoard = [...board, ...rest.slice(0, missingBoard)]
-      const heroSeven = [...hero, ...filledBoard]
-      const heroResult = best5of7(heroSeven)
-      if (heroResult.score === Infinity) continue
-
-      let oppStart = missingBoard
-      let heroWins = true
-      for (let o = 0; o < numOpponents; o++) {
-        const opp1 = rest[oppStart]
-        const opp2 = rest[oppStart + 1]
-        oppStart += 2
-        const oppSeven = [opp1, opp2, ...filledBoard]
-        const oppResult = best5of7(oppSeven)
-        if (oppResult.score <= heroResult.score) {
-          heroWins = false
-          break
-        }
-      }
-      if (heroWins) wins++
-      counted++
-    }
-
-    const equity = counted > 0 ? Math.round((wins / counted) * 10000) / 100 : 0
+    const baseSim = simulateScenario(hero, board, deck, numOpponents, iterations)
+    const equity = Math.round(baseSim.equity * 10000) / 100
     const e = equity / 100
     const potAfter = pot + ourBet
     const ev = Math.round((e * potAfter - (1 - e) * ourBet) * 100) / 100
@@ -111,17 +144,50 @@ export function usePokerEquity() {
     let outs = 0
     let drawOdds = 0
     const outsList = []
+    let dirtyOuts = 0
+    const dirtyOutsList = []
+    let reverseOuts = 0
+    let reverseDrawOdds = 0
+    const reverseOutsList = []
     const streetsLeft = 5 - board.length
+
     if (streetsLeft > 0 && knownCards.length >= 5) {
-      const currentScore = best5of7(knownCards).score
+      const current = best5of7(knownCards)
+      const baseEquity = baseSim.equity
+      const baseLossRate = baseSim.lossRate
+      const sampleN = Math.max(140, Math.floor(iterations / 12))
+      const equityEpsilon = 0.005
+      const rem = deck.length
+
       for (const c of deck) {
         const improved = best5of7([...knownCards, c])
-        if (improved.score < currentScore) {
+        const improvesHand = improved.rankValue < current.rankValue
+        const newBoard = [...board, c]
+        const deckMinusC = deck.filter(d => d !== c)
+        const afterSim = simulateScenario(hero, newBoard, deckMinusC, numOpponents, sampleN)
+        const equityAfter = afterSim.equity
+        const isRealOut = improvesHand && equityAfter > baseEquity + equityEpsilon
+
+        if (isRealOut) {
           outs++
-          outsList.push({ card: c, handName: improved.rank })
+          outsList.push({
+            card: c,
+            handName: improved.rank,
+          })
+        } else if (improvesHand) {
+          dirtyOuts++
+          dirtyOutsList.push({
+            card: c,
+            handName: improved.rank,
+          })
+        }
+
+        if (!isRealOut && afterSim.lossRate > baseLossRate + 0.08) {
+          reverseOuts++
+          reverseOutsList.push({ card: c, handName: afterSim.topOppRank })
         }
       }
-      const rem = deck.length
+
       if (streetsLeft === 1) {
         drawOdds = Math.round((outs / rem) * 10000) / 100
       } else {
@@ -130,9 +196,31 @@ export function usePokerEquity() {
           : 0
         drawOdds = Math.round((1 - miss) * 10000) / 100
       }
+
+      if (reverseOuts > 0) {
+        if (streetsLeft === 1) {
+          reverseDrawOdds = Math.round((reverseOuts / rem) * 10000) / 100
+        } else {
+          const miss3 = ((rem - reverseOuts) / rem) * ((rem - 1 - reverseOuts) / (rem - 1))
+          reverseDrawOdds = Math.round((1 - miss3) * 10000) / 100
+        }
+      }
     }
 
-    return { equity, ev, handName, potOdds, outs, drawOdds, outsList }
+    return {
+      equity,
+      ev,
+      handName,
+      potOdds,
+      outs,
+      drawOdds,
+      outsList,
+      dirtyOuts,
+      dirtyOutsList,
+      reverseOuts,
+      reverseDrawOdds,
+      reverseOutsList,
+    }
   }
 
   return { calculate }

@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import CardSelect from "./components/CardSelect.vue";
 import PositionSelect from "./components/PositionSelect.vue";
 import { useDeck } from "./composables/useDeck.js";
-import EquityWorker from "./worker/equity.worker.js?worker";
+import { usePokerEquity } from "./composables/usePokerEquity.js";
 
 const { options, SUIT_SYMBOLS, SUIT_COLORS, RANK_LABELS_EN } = useDeck();
+const { calculate } = usePokerEquity();
 
 const RANK_LABELS = { T: '10', J: 'J', Q: 'Q', K: 'K', A: 'A' };
 function cardDisplay(c) {
@@ -19,6 +20,8 @@ function cardDisplay(c) {
 }
 
 const showOutsModal = ref(false);
+const showDirtyOutsModal = ref(false);
+const showReverseOutsModal = ref(false);
 
 const card1 = ref("");
 const card2 = ref("");
@@ -180,66 +183,28 @@ const canCalculate = computed(() => {
   return s.size === 5;
 });
 
-let worker = null;
-
-function calculate() {
-  if (!canCalculate.value || isCalculating.value) return;
-  isCalculating.value = true;
-  result.value = null;
-
-  if (worker) worker.terminate();
-  worker = new EquityWorker();
-  worker.onmessage = (e) => {
-    result.value = e.data;
-    isCalculating.value = false;
-    nextTick(() =>
-      resultRef.value?.scrollIntoView({ behavior: "smooth", block: "start" })
-    );
-    if (worker) worker.terminate();
-    worker = null;
-  };
-  worker.postMessage({
-    heroCards: [card1.value, card2.value],
-    boardCards: [
-      flop1.value,
-      flop2.value,
-      flop3.value,
-      turn.value,
-      river.value,
-    ].filter(Boolean),
-    numOpponents: Math.max(0, playersInPot.value - 1),
-    pot: pot.value,
-    ourBet: ourBet.value,
-    iterations: 2500,
-  });
-}
-
-function resetAll() {
-  card1.value = "";
-  card2.value = "";
-  flop1.value = "";
-  flop2.value = "";
-  flop3.value = "";
-  turn.value = "";
-  river.value = "";
-  pot.value = 100;
-  ourBet.value = 0;
-  playersInPot.value = 2;
-  heroPosition.value = "BTN";
-  result.value = null;
-  aiAnalysis.value = "";
-  if (worker) worker.terminate();
-  worker = null;
-  isCalculating.value = false;
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
 const aiAnalysis = ref("");
+const aiError = ref("");
 const isAiLoading = ref(false);
 const aiUnlocked = ref(false);
 const showCodeModal = ref(false);
 const codeInput = ref("");
 const codeError = ref(false);
+const codeModalForStrategy = ref(false);
+const showStrategyFullscreen = ref(false);
+const strategyContent = ref("");
+const strategyLoading = ref(false);
+
+watch(
+  [card1, card2, flop1, flop2, flop3, turn, river, pot, ourBet, playersInPot, heroPosition],
+  () => {
+    result.value = null;
+    aiAnalysis.value = "";
+    aiError.value = "";
+    showStrategyFullscreen.value = false;
+    strategyContent.value = "";
+  }
+);
 
 function tryUnlock() {
   if (codeInput.value === import.meta.env.VITE_ANALYTICS_KEY) {
@@ -247,8 +212,86 @@ function tryUnlock() {
     showCodeModal.value = false;
     codeInput.value = "";
     codeError.value = false;
+    if (codeModalForStrategy.value) {
+      codeModalForStrategy.value = false;
+      fetchStrategy();
+    }
   } else {
     codeError.value = true;
+  }
+}
+
+function openStrategyPassword() {
+  if (strategyLoading.value) return;
+  if (aiUnlocked.value) {
+    fetchStrategy();
+    return;
+  }
+  codeModalForStrategy.value = true;
+  showCodeModal.value = true;
+}
+
+function buildStrategyPrompt() {
+  const r = result.value;
+  const hand = `${cardLabel(card1.value)} ${cardLabel(card2.value)}`;
+  const boardCards = [flop1.value, flop2.value, flop3.value, turn.value, river.value];
+  const filledBoard = boardCards.filter(Boolean);
+  const board = filledBoard.map(cardLabel).join(' ');
+  const boardRanks = filledBoard.map(c => c[0]);
+  const boardSuits = filledBoard.map(c => c[1]);
+  const threats = [];
+  const rankCounts = {};
+  for (const rank of boardRanks) rankCounts[rank] = (rankCounts[rank] || 0) + 1;
+  const pairs = Object.entries(rankCounts).filter(([, v]) => v >= 2);
+  if (pairs.length) threats.push(`Борд спарен (${pairs.map(([rank, v]) => `${RANK_LABELS[rank] || rank}×${v}`).join(', ')}) → возможны фулл-хаус/каре у оппонентов`);
+  const suitCounts = {};
+  for (const s of boardSuits) suitCounts[s] = (suitCounts[s] || 0) + 1;
+  const flushSuit = Object.entries(suitCounts).find(([, v]) => v >= 3);
+  if (flushSuit) threats.push(`${flushSuit[1]} карты масти ${SUIT_SYMBOLS[flushSuit[0]]} → возможен флеш у оппонентов`);
+  const heroRanks = [card1.value[0], card2.value[0]];
+  if (heroRanks.every(hr => !boardRanks.includes(hr)) && r.handName && !['Старшая карта', 'Пара'].includes(r.handName))
+    threats.push('Комбинация героя опирается на борд → оппоненты могут иметь ту же или лучшую');
+  return `Ты — профессиональный покерный аналитик. Дай краткую рекомендацию (3-5 предложений) по ситуации в Texas Hold'em.
+
+ДАННЫЕ (рассчитаны точно, через Monte Carlo 2500 итераций):
+Рука героя: ${hand}
+Борд: ${board}
+Комбинация героя: ${r.handName}
+Эквити: ${r.equity}% (вероятность победы против случайных рук)
+EV: ${r.ev}
+${r.potOdds > 0 ? `Пот-оддсы: ${r.potOdds}% (нужно эквити ≥ ${r.potOdds}% для безубыточного колла)` : 'Ставка: 0 (чек)'}
+${r.outs > 0 ? `Ауты: ${r.outs}, шанс доезда: ${r.drawOdds}%` : 'Ауты: 0 (нет карт, которые повышают эквити)'}
+${r.dirtyOuts > 0 ? `Грязные ауты: ${r.dirtyOuts} (улучшают категорию, но не повышают эквити)` : 'Грязные ауты: 0'}
+${r.reverseOuts > 0 ? `Перезды: ${r.reverseOuts}, шанс перезда: ${r.reverseDrawOdds}%` : 'Перезды: 0'}
+Позиция: ${heroPosition.value}, игроков в банке: ${playersInPot.value}
+Банк: ${pot.value}, ставка/колл: ${ourBet.value}
+${threats.length ? `\nУГРОЗЫ БОРДА:\n${threats.map(t => '- ' + t).join('\n')}` : ''}
+
+ПРАВИЛА ОТВЕТА:
+- Эквити — главный индикатор. Не называй комбинацию "сильной" если эквити < 60%.
+- Сравни эквити с пот-оддсами для решения колл/фолд.
+- Укажи какие руки оппонентов бьют нашу на этом борде.
+- Учти позицию и число игроков.
+- Только текст, без JSON/markdown.`;
+}
+
+async function fetchStrategy() {
+  if (strategyLoading.value) return;
+  strategyLoading.value = true;
+  strategyContent.value = "";
+  try {
+    const prompt = buildStrategyPrompt();
+    const raw = await callAi(prompt);
+    strategyContent.value = raw.trim();
+    showStrategyFullscreen.value = true;
+  } catch (e) {
+    const msg = String(e?.message || "");
+    strategyContent.value = /forbidden/i.test(msg)
+      ? "Ошибка доступа к AI. Проверьте GROQ_API_KEY в .env и перезапустите dev-сервер."
+      : "Ошибка AI: " + msg;
+    showStrategyFullscreen.value = true;
+  } finally {
+    strategyLoading.value = false;
   }
 }
 
@@ -268,36 +311,58 @@ function cardLabel(c) {
   return d.rank + d.suit;
 }
 
-async function analyzeWithAi() {
-  if (!result.value || isAiLoading.value) return;
-  isAiLoading.value = true;
+function analyze() {
+  if (!canCalculate.value || isCalculating.value) return;
+
+  isCalculating.value = true;
+  result.value = null;
+  aiError.value = "";
+
+  const heroCards = [card1.value, card2.value];
+  const boardCards = [flop1.value, flop2.value, flop3.value, turn.value, river.value];
+  const numOpponents = playersInPot.value - 1;
+
+  const calc = calculate(heroCards, boardCards, numOpponents, pot.value, ourBet.value);
+  result.value = {
+    equity: calc.equity,
+    ev: calc.ev,
+    handName: calc.handName,
+    potOdds: calc.potOdds,
+    outs: calc.outs,
+    drawOdds: calc.drawOdds,
+    outsList: calc.outsList || [],
+    dirtyOuts: calc.dirtyOuts || 0,
+    dirtyOutsList: calc.dirtyOutsList || [],
+    reverseOuts: calc.reverseOuts,
+    reverseDrawOdds: calc.reverseDrawOdds,
+    reverseOutsList: calc.reverseOutsList || [],
+  };
+
+  isCalculating.value = false;
+  nextTick(() =>
+    resultRef.value?.scrollIntoView({ behavior: "smooth", block: "start" })
+  );
+}
+
+function resetAll() {
+  card1.value = "";
+  card2.value = "";
+  flop1.value = "";
+  flop2.value = "";
+  flop3.value = "";
+  turn.value = "";
+  river.value = "";
+  pot.value = 100;
+  ourBet.value = 0;
+  playersInPot.value = 2;
+  heroPosition.value = "BTN";
+  result.value = null;
   aiAnalysis.value = "";
-
-  const hand = `${cardLabel(card1.value)} ${cardLabel(card2.value)}`;
-  const board = [flop1.value, flop2.value, flop3.value, turn.value, river.value]
-    .filter(Boolean).map(cardLabel).join(' ');
-  const r = result.value;
-
-  const prompt = `Ты — профессиональный покерный тренер. Проанализируй ситуацию кратко (3-5 предложений) на русском.
-
-Рука: ${hand}
-Борд: ${board}
-Позиция: ${heroPosition.value}
-Игроков в банке: ${playersInPot.value}
-Банк: ${pot.value}, Ставка/колл: ${ourBet.value}
-Эквити: ${r.equity}%, EV: ${r.ev}, Пот-оддсы: ${r.potOdds}%
-Комбинация: ${r.handName || 'нет'}
-Ауты: ${r.outs}, Шанс доезда: ${r.drawOdds}%
-
-Дай рекомендацию: колл/рейз/фолд и почему. Учти позицию и число игроков.`;
-
-  try {
-    aiAnalysis.value = await callAi(prompt);
-  } catch (e) {
-    aiAnalysis.value = "Ошибка: " + e.message;
-  } finally {
-    isAiLoading.value = false;
-  }
+  aiError.value = "";
+  showStrategyFullscreen.value = false;
+  strategyContent.value = "";
+  isCalculating.value = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 const isPlusEV = computed(() => result.value != null && result.value.ev > 0);
@@ -314,7 +379,7 @@ const equityRingOffset = computed(() =>
 <template>
   <div class="page">
     <header class="header">
-      <h1 class="title">Poker Help</h1>
+      <h1 class="title">Poker Help <span class="by">(by Lex)</span></h1>
     </header>
 
     <main class="main">
@@ -415,7 +480,7 @@ const equityRingOffset = computed(() =>
         </div>
         <div class="row inputs-row row-two">
           <div class="field">
-            <label class="label">В банке (с нами)</label>
+            <label class="label">Игроков в банке</label>
             <input
               :value="playersInPot"
               type="text"
@@ -436,15 +501,19 @@ const equityRingOffset = computed(() =>
       <div class="actions">
         <button
           type="button"
-          class="btn btn-neon"
+          class="btn btn-ai"
           :disabled="!canCalculate || isCalculating"
-          @click="calculate"
+          @click="analyze"
         >
-          {{ isCalculating ? "Считаем…" : "Рассчитать" }}
+          {{ isCalculating ? "Анализ…" : "Анализ" }}
         </button>
         <button type="button" class="btn btn-reset" @click="resetAll">
           Сброс
         </button>
+      </div>
+
+      <div v-if="aiError" class="card-panel section error-panel">
+        <p class="error-text">Ошибка: {{ aiError }}</p>
       </div>
 
       <section v-if="result" ref="resultRef" class="card-panel section result">
@@ -474,9 +543,21 @@ const equityRingOffset = computed(() =>
             <span class="stat-label">Ауты</span>
             <span class="stat-value ev-outs">{{ result.outs }}</span>
           </div>
+          <div v-if="result.dirtyOuts > 0" class="stat-col stat-clickable" @click="showDirtyOutsModal = true">
+            <span class="stat-label">Грязные ауты</span>
+            <span class="stat-value ev-danger">{{ result.dirtyOuts }}</span>
+          </div>
           <div v-if="result.drawOdds > 0" class="stat-col">
             <span class="stat-label">Доезд</span>
             <span class="stat-value ev-outs">{{ result.drawOdds }}%</span>
+          </div>
+          <div v-if="result.reverseOuts > 0" class="stat-col stat-clickable stat-danger" @click="showReverseOutsModal = true">
+            <span class="stat-label">Перезды</span>
+            <span class="stat-value ev-danger">{{ result.reverseOuts }}</span>
+          </div>
+          <div v-if="result.reverseDrawOdds > 0" class="stat-col">
+            <span class="stat-label">Перезд</span>
+            <span class="stat-value ev-danger">{{ result.reverseDrawOdds }}%</span>
           </div>
         </div>
 
@@ -486,31 +567,45 @@ const equityRingOffset = computed(() =>
           </p>
         </div>
 
-        <div class="ai-section">
-          <button class="btn btn-ai" :disabled="isAiLoading" @click="aiUnlocked ? analyzeWithAi() : (showCodeModal = true)">
-            {{ isAiLoading ? "Анализ…" : "Анализ ситуации" }}
+        <div class="result-row result-row-strategy">
+          <button
+            type="button"
+            class="btn btn-ai btn-strategy"
+            :disabled="strategyLoading"
+            @click="openStrategyPassword"
+          >
+            {{ strategyLoading ? "Стратегия…" : "Стратегия" }}
           </button>
         </div>
 
         <div class="result-legend">
           <ul class="legend-list">
+            <li v-if="result.handName">
+              <strong>Название комбинации</strong> — лучшая возможная рука по вашим картам и борду (флоп/терн/ривер).
+            </li>
             <li>
               <strong>Эквити (круг)</strong> — доля банка, которую ваша рука выигрывает в среднем в этой ситуации (вероятность победы).
             </li>
             <li>
-              <strong>Название комбинации</strong> — лучшая возможная рука по вашим картам и борду (флоп/терн/ривер).
-            </li>
-            <li>
               <strong>EV (ожидаемая ценность)</strong> — средний выигрыш или проигрыш от действия в условных единицах; «+» — выгодно, «−» — невыгодно.
             </li>
-            <li>
+            <li v-if="result.potOdds > 0">
               <strong>Пот-оддсы</strong> — минимальный процент побед, при котором колл безубыточен (сравнивайте с эквити: эквити ≥ пот-оддсы — колл ок).
             </li>
-            <li>
-              <strong>Ауты</strong> — количество карт в колоде, которые улучат вашу текущую комбинацию на следующей улице.
+            <li v-if="result.outs > 0">
+              <strong>Ауты</strong> — карты, которые увеличивают ваше эквити против диапазона оппонента.
             </li>
-            <li>
+            <li v-if="result.dirtyOuts > 0">
+              <strong>Грязные ауты</strong> — карты, которые улучшают видимую комбинацию, но не увеличивают эквити.
+            </li>
+            <li v-if="result.drawOdds > 0">
               <strong>Доезд</strong> — вероятность (%) словить хотя бы один аут на оставшихся улицах (терн/ривер).
+            </li>
+            <li v-if="result.reverseOuts > 0">
+              <strong>Перезды</strong> — карты в колоде, при выходе которых на борд оппоненты побеждают значительно чаще.
+            </li>
+            <li v-if="result.reverseDrawOdds > 0">
+              <strong>Перезд</strong> — вероятность (%) выхода хотя бы одного перезда на оставшихся улицах.
             </li>
             <li>
               <strong>Плюсовое/минусовое решение</strong> — вывод по EV: положительный EV = выгодно делать ставку/колл, отрицательный = невыгодно.
@@ -522,14 +617,58 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showOutsModal && result && result.outsList?.length" class="outs-overlay" @click.self="showOutsModal = false">
-          <div class="outs-modal">
+        <div v-if="showOutsModal && result && result.outsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showOutsModal = false">
+          <div class="outs-modal outs-modal-fullscreen">
             <div class="outs-header">
-              <h2 class="outs-title">Ауты — {{ result.outs }} карт</h2>
+              <h2 class="outs-title">Ауты</h2>
               <button class="outs-close" @click="showOutsModal = false">✕</button>
             </div>
             <div class="outs-grid">
               <div v-for="(out, i) in result.outsList" :key="i" class="out-card">
+                <span class="out-card-face">
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                </span>
+                <span class="out-hand">{{ out.handName }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showReverseOutsModal && result && result.reverseOutsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showReverseOutsModal = false">
+          <div class="outs-modal outs-modal-fullscreen">
+            <div class="outs-header">
+              <h2 class="outs-title reverse-title">Перезды</h2>
+              <button class="outs-close" @click="showReverseOutsModal = false">✕</button>
+            </div>
+            <p class="reverse-desc">Карты, при выходе которых оппоненты побеждают чаще</p>
+            <div class="outs-grid">
+              <div v-for="(out, i) in result.reverseOutsList" :key="i" class="out-card reverse-card">
+                <span class="out-card-face">
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                </span>
+                <span class="out-hand">{{ out.handName }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showDirtyOutsModal && result && result.dirtyOutsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showDirtyOutsModal = false">
+          <div class="outs-modal outs-modal-fullscreen">
+            <div class="outs-header">
+              <h2 class="outs-title reverse-title">Грязные ауты</h2>
+              <button class="outs-close" @click="showDirtyOutsModal = false">✕</button>
+            </div>
+            <p class="reverse-desc">Карты, которые улучшают комбинацию по названию, но не повышают эквити</p>
+            <div class="outs-grid">
+              <div v-for="(out, i) in result.dirtyOutsList" :key="i" class="out-card reverse-card">
                 <span class="out-card-face">
                   <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
                 </span>
@@ -566,19 +705,22 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="aiAnalysis" class="outs-overlay ai-overlay">
-          <div class="ai-modal">
-            <div class="ai-modal-header">
-              <h2 class="ai-modal-title">Aнализ и стратегия</h2>
-              <button class="outs-close" @click="aiAnalysis = ''">✕</button>
+        <div v-if="showStrategyFullscreen" class="strategy-fullscreen" @click.self="showStrategyFullscreen = false">
+          <div class="strategy-fullscreen-inner">
+            <div class="strategy-fullscreen-header">
+              <h2 class="strategy-fullscreen-title">Стратегия</h2>
+              <button type="button" class="outs-close strategy-close" @click="showStrategyFullscreen = false">✕</button>
             </div>
-            <div class="ai-modal-body">
-              <p class="ai-text">{{ aiAnalysis }}</p>
+            <div v-if="strategyLoading" class="strategy-loading">
+              <div class="strategy-spinner"></div>
+              <p>Загрузка анализа…</p>
             </div>
+            <div v-else class="strategy-body">{{ strategyContent }}</div>
           </div>
         </div>
       </Transition>
     </Teleport>
+
   </div>
 </template>
 
@@ -595,12 +737,21 @@ const equityRingOffset = computed(() =>
   margin-bottom: 2rem;
 }
 
+h1 .by{
+  font-size: .4em;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
 .title {
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 0.25rem;
-  color: #0ea5e9;
-  text-shadow: 0 0 6px rgba(14, 165, 233, 0.4), 0 0 14px rgba(14, 165, 233, 0.2);
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px rgba(167, 139, 250, 0.4)) drop-shadow(0 0 16px rgba(124, 58, 237, 0.2));
 }
 
 .subtitle {
@@ -742,12 +893,22 @@ const equityRingOffset = computed(() =>
 .result-row-stats {
   padding: 0.75rem 0;
   border-top: 1px solid var(--border);
-  gap: 2rem;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.5rem;
 }
 
 .result-row-verdict {
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
+}
+
+.result-row-strategy {
+  padding-top: 0.75rem;
+}
+
+.btn-strategy {
+  width: 100%;
+  max-width: none;
 }
 
 .equity-ring {
@@ -789,11 +950,13 @@ const equityRingOffset = computed(() =>
   flex-direction: column;
   align-items: center;
   gap: 0.15rem;
+  min-width: 68px;
 }
 
 .stat-label {
   font-size: 0.75rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .stat-value {
@@ -803,6 +966,37 @@ const equityRingOffset = computed(() =>
 
 .ev-outs {
   color: #a78bfa;
+}
+
+.ev-danger {
+  color: #f87171;
+}
+
+.stat-danger {
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+.stat-danger:hover {
+  animation: none;
+}
+
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.reverse-title {
+  color: #f87171 !important;
+}
+
+.reverse-desc {
+  margin: 0;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.reverse-card {
+  border-color: rgba(248, 113, 113, 0.2);
 }
 
 .ev-verdict {
@@ -815,7 +1009,6 @@ const equityRingOffset = computed(() =>
 .result-legend {
   margin-top: 0.75rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border);
 }
 
 .legend-title {
@@ -851,6 +1044,32 @@ const equityRingOffset = computed(() =>
   border-top: 1px solid var(--border);
 }
 
+.ai-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #a78bfa;
+  margin: 0 0 0.5rem;
+}
+
+.ai-inline-text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.error-panel {
+  border-color: var(--negative);
+}
+
+.error-text {
+  margin: 0;
+  color: var(--negative);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 .btn-ai {
   width: 100%;
   padding: 0.65rem 1rem;
@@ -874,48 +1093,6 @@ const equityRingOffset = computed(() =>
   cursor: not-allowed;
 }
 
-.ai-overlay {
-  padding: 0;
-}
-
-.ai-modal {
-  width: 100%;
-  height: 100%;
-  background: var(--surface);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.ai-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-}
-
-.ai-modal-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #a78bfa;
-  margin: 0;
-}
-
-.ai-modal-body {
-  padding: 1.25rem;
-}
-
-.ai-text {
-  margin: 0;
-  font-size: 0.99rem;
-  line-height: 1.7;
-  color: var(--text);
-  white-space: pre-wrap;
-}
 
 .code-modal {
   background: var(--surface);
@@ -1014,6 +1191,20 @@ const equityRingOffset = computed(() =>
   flex-direction: column;
 }
 
+.outs-overlay-fullscreen {
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.outs-modal-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+}
+
 .outs-header {
   display: flex;
   align-items: center;
@@ -1096,6 +1287,94 @@ const equityRingOffset = computed(() =>
 }
 .modal-leave-to .outs-modal {
   transform: scale(0.95);
+}
+
+.strategy-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.strategy-fullscreen-inner {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  background: var(--surface);
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.strategy-fullscreen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.strategy-fullscreen-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #a78bfa;
+  margin: 0;
+}
+
+.strategy-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.strategy-close:hover {
+  color: var(--text);
+}
+
+.strategy-loading {
+  padding: 3rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.strategy-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: #a78bfa;
+  border-radius: 50%;
+  animation: strategy-spin 0.8s linear infinite;
+}
+
+@keyframes strategy-spin {
+  to { transform: rotate(360deg); }
+}
+
+.strategy-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
 }
 
 @media (max-width: 420px) {
