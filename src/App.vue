@@ -260,6 +260,7 @@ function buildStrategyPrompt() {
 Эквити: ${r.equity}% (вероятность победы против случайных рук)
 EV: ${r.ev}
 ${r.potOdds > 0 ? `Пот-оддсы: ${r.potOdds}% (нужно эквити ≥ ${r.potOdds}% для безубыточного колла)` : 'Ставка: 0 (чек)'}
+Шанс собрать натс: ${r.nutsOdds}%
 ${r.outs > 0 ? `Ауты: ${r.outs}, шанс доезда: ${r.drawOdds}%` : 'Ауты: 0 (нет карт, которые повышают эквити)'}
 ${r.dirtyOuts > 0 ? `Грязные ауты: ${r.dirtyOuts} (улучшают категорию, но не повышают эквити)` : 'Грязные ауты: 0'}
 ${r.reverseOuts > 0 ? `Перезды: ${r.reverseOuts}, шанс перезда: ${r.reverseDrawOdds}%` : 'Перезды: 0'}
@@ -328,6 +329,7 @@ function analyze() {
     ev: calc.ev,
     handName: calc.handName,
     potOdds: calc.potOdds,
+    nutsOdds: calc.nutsOdds,
     outs: calc.outs,
     drawOdds: calc.drawOdds,
     outsList: calc.outsList || [],
@@ -539,6 +541,10 @@ const equityRingOffset = computed(() =>
             <span class="stat-label">Пот-оддсы</span>
             <span class="stat-value" :class="result.equity >= result.potOdds ? 'ev-positive' : 'ev-negative'">{{ result.potOdds }}%</span>
           </div>
+          <div class="stat-col">
+            <span class="stat-label">Шанс натса</span>
+            <span class="stat-value ev-outs">{{ result.nutsOdds }}%</span>
+          </div>
           <div v-if="result.outs > 0" class="stat-col stat-clickable" @click="showOutsModal = true">
             <span class="stat-label">Ауты</span>
             <span class="stat-value ev-outs">{{ result.outs }}</span>
@@ -591,6 +597,9 @@ const equityRingOffset = computed(() =>
             </li>
             <li v-if="result.potOdds > 0">
               <strong>Пот-оддсы</strong> — минимальный процент побед, при котором колл безубыточен (сравнивайте с эквити: эквити ≥ пот-оддсы — колл ок).
+            </li>
+            <li>
+              <strong>Шанс натса</strong> — вероятность (%) собрать лучшую возможную комбинацию к шоудауну с учётом оставшихся улиц.
             </li>
             <li v-if="result.outs > 0">
               <strong>Ауты</strong> — карты, которые увеличивают ваше эквити против диапазона оппонента.
@@ -930,7 +939,7 @@ h1 .by{
 
 .ev-inline {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.4rem;
   margin: 0;
 }

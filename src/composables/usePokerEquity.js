@@ -51,6 +51,22 @@ function best5of7(cards) {
   return { score, rank: RANK_NAMES[rankValue] || '', rankValue }
 }
 
+function isHeroNuts(hero, finalBoard) {
+  const heroResult = best5of7([...hero, ...finalBoard])
+  if (heroResult.score === Infinity) return false
+
+  const used = new Set([...hero, ...finalBoard])
+  const available = fullDeck().filter((c) => !used.has(c))
+
+  for (let i = 0; i < available.length - 1; i++) {
+    for (let j = i + 1; j < available.length; j++) {
+      const oppResult = best5of7([available[i], available[j], ...finalBoard])
+      if (oppResult.score < heroResult.score) return false
+    }
+  }
+  return true
+}
+
 function simulateScenario(hero, boardBase, deckBase, numOpponents, trials) {
   const missingBoard = 5 - boardBase.length
   let equityShareSum = 0
@@ -118,6 +134,7 @@ export function usePokerEquity() {
         ev: 0,
         handName: '',
         potOdds: 0,
+        nutsOdds: 0,
         outs: 0,
         drawOdds: 0,
         outsList: [],
@@ -140,6 +157,7 @@ export function usePokerEquity() {
 
     const knownCards = [...hero, ...board]
     const handName = knownCards.length >= 5 ? best5of7(knownCards).rank : ''
+    let nutsOdds = 0
 
     let outs = 0
     let drawOdds = 0
@@ -150,6 +168,19 @@ export function usePokerEquity() {
     let reverseDrawOdds = 0
     const reverseOutsList = []
     const streetsLeft = 5 - board.length
+
+    if (streetsLeft === 0) {
+      nutsOdds = isHeroNuts(hero, board) ? 100 : 0
+    } else {
+      const nutsTrials = Math.max(300, Math.floor(iterations / 3))
+      let nutsHits = 0
+      for (let i = 0; i < nutsTrials; i++) {
+        const rest = shuffle(deck)
+        const finalBoard = [...board, ...rest.slice(0, streetsLeft)]
+        if (isHeroNuts(hero, finalBoard)) nutsHits++
+      }
+      nutsOdds = Math.round((nutsHits / nutsTrials) * 10000) / 100
+    }
 
     if (streetsLeft > 0 && knownCards.length >= 5) {
       const current = best5of7(knownCards)
@@ -212,6 +243,7 @@ export function usePokerEquity() {
       ev,
       handName,
       potOdds,
+      nutsOdds,
       outs,
       drawOdds,
       outsList,
