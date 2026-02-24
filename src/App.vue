@@ -8,14 +8,14 @@ import { usePokerEquity } from "./composables/usePokerEquity.js";
 const { options, SUIT_SYMBOLS, SUIT_COLORS, RANK_LABELS_EN } = useDeck();
 const { calculate } = usePokerEquity();
 
-const RANK_LABELS = { T: '10', J: 'J', Q: 'Q', K: 'K', A: 'A' };
+const RANK_LABELS = { T: "10", J: "J", Q: "Q", K: "K", A: "A" };
 function cardDisplay(c) {
   const r = c[0];
-  const s = c[1] || '';
+  const s = c[1] || "";
   return {
     rank: RANK_LABELS[r] || r,
     suit: SUIT_SYMBOLS[s] || s,
-    color: SUIT_COLORS[s] || '#e4e4e7',
+    color: SUIT_COLORS[s] || "#e4e4e7",
   };
 }
 
@@ -196,7 +196,19 @@ const strategyContent = ref("");
 const strategyLoading = ref(false);
 
 watch(
-  [card1, card2, flop1, flop2, flop3, turn, river, pot, ourBet, playersInPot, heroPosition],
+  [
+    card1,
+    card2,
+    flop1,
+    flop2,
+    flop3,
+    turn,
+    river,
+    pot,
+    ourBet,
+    playersInPot,
+    heroPosition,
+  ],
   () => {
     result.value = null;
     aiAnalysis.value = "";
@@ -234,23 +246,45 @@ function openStrategyPassword() {
 function buildStrategyPrompt() {
   const r = result.value;
   const hand = `${cardLabel(card1.value)} ${cardLabel(card2.value)}`;
-  const boardCards = [flop1.value, flop2.value, flop3.value, turn.value, river.value];
+  const boardCards = [
+    flop1.value,
+    flop2.value,
+    flop3.value,
+    turn.value,
+    river.value,
+  ];
   const filledBoard = boardCards.filter(Boolean);
-  const board = filledBoard.map(cardLabel).join(' ');
-  const boardRanks = filledBoard.map(c => c[0]);
-  const boardSuits = filledBoard.map(c => c[1]);
+  const board = filledBoard.map(cardLabel).join(" ");
+  const boardRanks = filledBoard.map((c) => c[0]);
+  const boardSuits = filledBoard.map((c) => c[1]);
   const threats = [];
   const rankCounts = {};
   for (const rank of boardRanks) rankCounts[rank] = (rankCounts[rank] || 0) + 1;
   const pairs = Object.entries(rankCounts).filter(([, v]) => v >= 2);
-  if (pairs.length) threats.push(`Борд спарен (${pairs.map(([rank, v]) => `${RANK_LABELS[rank] || rank}×${v}`).join(', ')}) → возможны фулл-хаус/каре у оппонентов`);
+  if (pairs.length)
+    threats.push(
+      `Борд спарен (${pairs
+        .map(([rank, v]) => `${RANK_LABELS[rank] || rank}×${v}`)
+        .join(", ")}) → возможны фулл-хаус/каре у оппонентов`
+    );
   const suitCounts = {};
   for (const s of boardSuits) suitCounts[s] = (suitCounts[s] || 0) + 1;
   const flushSuit = Object.entries(suitCounts).find(([, v]) => v >= 3);
-  if (flushSuit) threats.push(`${flushSuit[1]} карты масти ${SUIT_SYMBOLS[flushSuit[0]]} → возможен флеш у оппонентов`);
+  if (flushSuit)
+    threats.push(
+      `${flushSuit[1]} карты масти ${
+        SUIT_SYMBOLS[flushSuit[0]]
+      } → возможен флеш у оппонентов`
+    );
   const heroRanks = [card1.value[0], card2.value[0]];
-  if (heroRanks.every(hr => !boardRanks.includes(hr)) && r.handName && !['Старшая карта', 'Пара'].includes(r.handName))
-    threats.push('Комбинация героя опирается на борд → оппоненты могут иметь ту же или лучшую');
+  if (
+    heroRanks.every((hr) => !boardRanks.includes(hr)) &&
+    r.handName &&
+    !["Старшая карта", "Пара"].includes(r.handName)
+  )
+    threats.push(
+      "Комбинация героя опирается на борд → оппоненты могут иметь ту же или лучшую"
+    );
   return `Ты — профессиональный покерный аналитик. Дай краткую рекомендацию (3-5 предложений) по ситуации в Texas Hold'em.
 
 ДАННЫЕ (рассчитаны точно, через Monte Carlo 2500 итераций):
@@ -259,14 +293,34 @@ function buildStrategyPrompt() {
 Комбинация героя: ${r.handName}
 Эквити: ${r.equity}% (вероятность победы против случайных рук)
 EV: ${r.ev}
-${r.potOdds > 0 ? `Пот-оддсы: ${r.potOdds}% (нужно эквити ≥ ${r.potOdds}% для безубыточного колла)` : 'Ставка: 0 (чек)'}
+${
+  r.potOdds > 0
+    ? `Пот-оддсы: ${r.potOdds}% (нужно эквити ≥ ${r.potOdds}% для безубыточного колла)`
+    : "Ставка: 0 (чек)"
+}
 Шанс собрать натс: ${r.nutsOdds}%
-${r.outs > 0 ? `Ауты: ${r.outs}, шанс доезда: ${r.drawOdds}%` : 'Ауты: 0 (нет карт, которые повышают эквити)'}
-${r.dirtyOuts > 0 ? `Грязные ауты: ${r.dirtyOuts} (улучшают категорию, но не повышают эквити)` : 'Грязные ауты: 0'}
-${r.reverseOuts > 0 ? `Перезды: ${r.reverseOuts}, шанс перезда: ${r.reverseDrawOdds}%` : 'Перезды: 0'}
+${
+  r.outs > 0
+    ? `Ауты: ${r.outs}, шанс доезда: ${r.drawOdds}%`
+    : "Ауты: 0 (нет карт, которые повышают эквити)"
+}
+${
+  r.dirtyOuts > 0
+    ? `Грязные ауты: ${r.dirtyOuts} (улучшают категорию, но не повышают эквити)`
+    : "Грязные ауты: 0"
+}
+${
+  r.reverseOuts > 0
+    ? `Перезды: ${r.reverseOuts}, шанс перезда: ${r.reverseDrawOdds}%`
+    : "Перезды: 0"
+}
 Позиция: ${heroPosition.value}, игроков в банке: ${playersInPot.value}
 Банк: ${pot.value}, ставка/колл: ${ourBet.value}
-${threats.length ? `\nУГРОЗЫ БОРДА:\n${threats.map(t => '- ' + t).join('\n')}` : ''}
+${
+  threats.length
+    ? `\nУГРОЗЫ БОРДА:\n${threats.map((t) => "- " + t).join("\n")}`
+    : ""
+}
 
 ПРАВИЛА ОТВЕТА:
 - Эквити — главный индикатор. Не называй комбинацию "сильной" если эквити < 60%.
@@ -297,13 +351,14 @@ async function fetchStrategy() {
 }
 
 async function callAi(prompt) {
-  const res = await fetch('/api/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
   });
   const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok || data.error)
+    throw new Error(data.error || `HTTP ${res.status}`);
   return data.content;
 }
 
@@ -320,10 +375,22 @@ function analyze() {
   aiError.value = "";
 
   const heroCards = [card1.value, card2.value];
-  const boardCards = [flop1.value, flop2.value, flop3.value, turn.value, river.value];
+  const boardCards = [
+    flop1.value,
+    flop2.value,
+    flop3.value,
+    turn.value,
+    river.value,
+  ];
   const numOpponents = playersInPot.value - 1;
 
-  const calc = calculate(heroCards, boardCards, numOpponents, pot.value, ourBet.value);
+  const calc = calculate(
+    heroCards,
+    boardCards,
+    numOpponents,
+    pot.value,
+    ourBet.value
+  );
   result.value = {
     equity: calc.equity,
     ev: calc.ev,
@@ -381,7 +448,7 @@ const equityRingOffset = computed(() =>
 <template>
   <div class="page">
     <header class="header">
-      <h1 class="title">Poker Help <span class="by">(by Lex)</span></h1>
+      <h1 class="title">PokerSolver<span class="by">(by Lex)</span></h1>
     </header>
 
     <main class="main">
@@ -523,14 +590,32 @@ const equityRingOffset = computed(() =>
           <p v-if="result.handName" class="hand-name">{{ result.handName }}</p>
           <div class="equity-ring">
             <svg width="88" height="88" class="progress-ring">
-              <circle class="progress-ring-bg" stroke-width="8" :r="equityRingRadius" cx="44" cy="44" />
-              <circle class="progress-ring-fill" :stroke="isPlusEV ? 'var(--positive)' : 'var(--negative)'" stroke-width="8" :r="equityRingRadius" cx="44" cy="44" :stroke-dasharray="equityRingCircumference" :stroke-dashoffset="equityRingOffset" />
+              <circle
+                class="progress-ring-bg"
+                stroke-width="8"
+                :r="equityRingRadius"
+                cx="44"
+                cy="44"
+              />
+              <circle
+                class="progress-ring-fill"
+                :stroke="isPlusEV ? 'var(--positive)' : 'var(--negative)'"
+                stroke-width="8"
+                :r="equityRingRadius"
+                cx="44"
+                cy="44"
+                :stroke-dasharray="equityRingCircumference"
+                :stroke-dashoffset="equityRingOffset"
+              />
             </svg>
             <span class="equity-value">{{ result.equity }}%</span>
           </div>
           <p class="ev-inline">
             <span class="ev-label">EV</span>
-            <span class="ev-value" :class="isPlusEV ? 'ev-positive' : 'ev-negative'">
+            <span
+              class="ev-value"
+              :class="isPlusEV ? 'ev-positive' : 'ev-negative'"
+            >
               {{ result.ev > 0 ? "+" : "" }}{{ result.ev }}
             </span>
           </p>
@@ -539,17 +624,31 @@ const equityRingOffset = computed(() =>
         <div class="result-row result-row-stats">
           <div v-if="result.potOdds > 0" class="stat-col">
             <span class="stat-label">Пот-оддсы</span>
-            <span class="stat-value" :class="result.equity >= result.potOdds ? 'ev-positive' : 'ev-negative'">{{ result.potOdds }}%</span>
+            <span
+              class="stat-value"
+              :class="
+                result.equity >= result.potOdds ? 'ev-positive' : 'ev-negative'
+              "
+              >{{ result.potOdds }}%</span
+            >
           </div>
           <div class="stat-col">
             <span class="stat-label">Шанс натса</span>
             <span class="stat-value ev-outs">{{ result.nutsOdds }}%</span>
           </div>
-          <div v-if="result.outs > 0" class="stat-col stat-clickable" @click="showOutsModal = true">
+          <div
+            v-if="result.outs > 0"
+            class="stat-col stat-clickable"
+            @click="showOutsModal = true"
+          >
             <span class="stat-label">Ауты</span>
             <span class="stat-value ev-outs">{{ result.outs }}</span>
           </div>
-          <div v-if="result.dirtyOuts > 0" class="stat-col stat-clickable" @click="showDirtyOutsModal = true">
+          <div
+            v-if="result.dirtyOuts > 0"
+            class="stat-col stat-clickable"
+            @click="showDirtyOutsModal = true"
+          >
             <span class="stat-label">Грязные ауты</span>
             <span class="stat-value ev-danger">{{ result.dirtyOuts }}</span>
           </div>
@@ -557,18 +656,27 @@ const equityRingOffset = computed(() =>
             <span class="stat-label">Доезд</span>
             <span class="stat-value ev-outs">{{ result.drawOdds }}%</span>
           </div>
-          <div v-if="result.reverseOuts > 0" class="stat-col stat-clickable stat-danger" @click="showReverseOutsModal = true">
+          <div
+            v-if="result.reverseOuts > 0"
+            class="stat-col stat-clickable stat-danger"
+            @click="showReverseOutsModal = true"
+          >
             <span class="stat-label">Перезды</span>
             <span class="stat-value ev-danger">{{ result.reverseOuts }}</span>
           </div>
           <div v-if="result.reverseDrawOdds > 0" class="stat-col">
             <span class="stat-label">Перезд</span>
-            <span class="stat-value ev-danger">{{ result.reverseDrawOdds }}%</span>
+            <span class="stat-value ev-danger"
+              >{{ result.reverseDrawOdds }}%</span
+            >
           </div>
         </div>
 
         <div class="result-row result-row-verdict">
-          <p class="ev-verdict" :class="isPlusEV ? 'ev-positive' : 'ev-negative'">
+          <p
+            class="ev-verdict"
+            :class="isPlusEV ? 'ev-positive' : 'ev-negative'"
+          >
             {{ isPlusEV ? "Плюсовое решение" : "Минусовое решение" }}
           </p>
         </div>
@@ -587,37 +695,51 @@ const equityRingOffset = computed(() =>
         <div class="result-legend">
           <ul class="legend-list">
             <li v-if="result.handName">
-              <strong>Название комбинации</strong> — лучшая возможная рука по вашим картам и борду (флоп/терн/ривер).
+              <strong>Название комбинации</strong> — лучшая возможная рука по
+              вашим картам и борду (флоп/терн/ривер).
             </li>
             <li>
-              <strong>Эквити (круг)</strong> — доля банка, которую ваша рука выигрывает в среднем в этой ситуации (вероятность победы).
+              <strong>Эквити (круг)</strong> — доля банка, которую ваша рука
+              выигрывает в среднем в этой ситуации (вероятность победы).
             </li>
             <li>
-              <strong>EV (ожидаемая ценность)</strong> — средний выигрыш или проигрыш от действия в условных единицах; «+» — выгодно, «−» — невыгодно.
+              <strong>EV (ожидаемая ценность)</strong> — средний выигрыш или
+              проигрыш от действия в условных единицах; «+» — выгодно, «−» —
+              невыгодно.
             </li>
             <li v-if="result.potOdds > 0">
-              <strong>Пот-оддсы</strong> — минимальный процент побед, при котором колл безубыточен (сравнивайте с эквити: эквити ≥ пот-оддсы — колл ок).
+              <strong>Пот-оддсы</strong> — минимальный процент побед, при
+              котором колл безубыточен (сравнивайте с эквити: эквити ≥ пот-оддсы
+              — колл ок).
             </li>
             <li>
-              <strong>Шанс натса</strong> — вероятность (%) собрать лучшую возможную комбинацию к шоудауну с учётом оставшихся улиц.
+              <strong>Шанс натса</strong> — вероятность (%) собрать лучшую
+              возможную комбинацию к шоудауну с учётом оставшихся улиц.
             </li>
             <li v-if="result.outs > 0">
-              <strong>Ауты</strong> — карты, которые увеличивают ваше эквити против диапазона оппонента.
+              <strong>Ауты</strong> — карты, которые увеличивают ваше эквити
+              против диапазона оппонента.
             </li>
             <li v-if="result.dirtyOuts > 0">
-              <strong>Грязные ауты</strong> — карты, которые улучшают видимую комбинацию, но не увеличивают эквити.
+              <strong>Грязные ауты</strong> — карты, которые улучшают видимую
+              комбинацию, но не увеличивают эквити.
             </li>
             <li v-if="result.drawOdds > 0">
-              <strong>Доезд</strong> — вероятность (%) словить хотя бы один аут на оставшихся улицах (терн/ривер).
+              <strong>Доезд</strong> — вероятность (%) словить хотя бы один аут
+              на оставшихся улицах (терн/ривер).
             </li>
             <li v-if="result.reverseOuts > 0">
-              <strong>Перезды</strong> — карты в колоде, при выходе которых на борд оппоненты побеждают значительно чаще.
+              <strong>Перезды</strong> — карты в колоде, при выходе которых на
+              борд оппоненты побеждают значительно чаще.
             </li>
             <li v-if="result.reverseDrawOdds > 0">
-              <strong>Перезд</strong> — вероятность (%) выхода хотя бы одного перезда на оставшихся улицах.
+              <strong>Перезд</strong> — вероятность (%) выхода хотя бы одного
+              перезда на оставшихся улицах.
             </li>
             <li>
-              <strong>Плюсовое/минусовое решение</strong> — вывод по EV: положительный EV = выгодно делать ставку/колл, отрицательный = невыгодно.
+              <strong>Плюсовое/минусовое решение</strong> — вывод по EV:
+              положительный EV = выгодно делать ставку/колл, отрицательный =
+              невыгодно.
             </li>
           </ul>
         </div>
@@ -626,16 +748,31 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showOutsModal && result && result.outsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showOutsModal = false">
+        <div
+          v-if="showOutsModal && result && result.outsList?.length"
+          class="outs-overlay outs-overlay-fullscreen"
+          @click.self="showOutsModal = false"
+        >
           <div class="outs-modal outs-modal-fullscreen">
             <div class="outs-header">
               <h2 class="outs-title">Ауты</h2>
-              <button class="outs-close" @click="showOutsModal = false">✕</button>
+              <button class="outs-close" @click="showOutsModal = false">
+                ✕
+              </button>
             </div>
             <div class="outs-grid">
-              <div v-for="(out, i) in result.outsList" :key="i" class="out-card">
+              <div
+                v-for="(out, i) in result.outsList"
+                :key="i"
+                class="out-card"
+              >
                 <span class="out-card-face">
-                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span
+                  ><span
+                    class="out-suit"
+                    :style="{ color: cardDisplay(out.card).color }"
+                    >{{ cardDisplay(out.card).suit }}</span
+                  >
                 </span>
                 <span class="out-hand">{{ out.handName }}</span>
               </div>
@@ -647,17 +784,36 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showReverseOutsModal && result && result.reverseOutsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showReverseOutsModal = false">
+        <div
+          v-if="
+            showReverseOutsModal && result && result.reverseOutsList?.length
+          "
+          class="outs-overlay outs-overlay-fullscreen"
+          @click.self="showReverseOutsModal = false"
+        >
           <div class="outs-modal outs-modal-fullscreen">
             <div class="outs-header">
               <h2 class="outs-title reverse-title">Перезды</h2>
-              <button class="outs-close" @click="showReverseOutsModal = false">✕</button>
+              <button class="outs-close" @click="showReverseOutsModal = false">
+                ✕
+              </button>
             </div>
-            <p class="reverse-desc">Карты, при выходе которых оппоненты побеждают чаще</p>
+            <p class="reverse-desc">
+              Карты, при выходе которых оппоненты побеждают чаще
+            </p>
             <div class="outs-grid">
-              <div v-for="(out, i) in result.reverseOutsList" :key="i" class="out-card reverse-card">
+              <div
+                v-for="(out, i) in result.reverseOutsList"
+                :key="i"
+                class="out-card reverse-card"
+              >
                 <span class="out-card-face">
-                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span
+                  ><span
+                    class="out-suit"
+                    :style="{ color: cardDisplay(out.card).color }"
+                    >{{ cardDisplay(out.card).suit }}</span
+                  >
                 </span>
                 <span class="out-hand">{{ out.handName }}</span>
               </div>
@@ -669,17 +825,35 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showDirtyOutsModal && result && result.dirtyOutsList?.length" class="outs-overlay outs-overlay-fullscreen" @click.self="showDirtyOutsModal = false">
+        <div
+          v-if="showDirtyOutsModal && result && result.dirtyOutsList?.length"
+          class="outs-overlay outs-overlay-fullscreen"
+          @click.self="showDirtyOutsModal = false"
+        >
           <div class="outs-modal outs-modal-fullscreen">
             <div class="outs-header">
               <h2 class="outs-title reverse-title">Грязные ауты</h2>
-              <button class="outs-close" @click="showDirtyOutsModal = false">✕</button>
+              <button class="outs-close" @click="showDirtyOutsModal = false">
+                ✕
+              </button>
             </div>
-            <p class="reverse-desc">Карты, которые улучшают комбинацию по названию, но не повышают эквити</p>
+            <p class="reverse-desc">
+              Карты, которые улучшают комбинацию по названию, но не повышают
+              эквити
+            </p>
             <div class="outs-grid">
-              <div v-for="(out, i) in result.dirtyOutsList" :key="i" class="out-card reverse-card">
+              <div
+                v-for="(out, i) in result.dirtyOutsList"
+                :key="i"
+                class="out-card reverse-card"
+              >
                 <span class="out-card-face">
-                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span><span class="out-suit" :style="{ color: cardDisplay(out.card).color }">{{ cardDisplay(out.card).suit }}</span>
+                  <span class="out-rank">{{ cardDisplay(out.card).rank }}</span
+                  ><span
+                    class="out-suit"
+                    :style="{ color: cardDisplay(out.card).color }"
+                    >{{ cardDisplay(out.card).suit }}</span
+                  >
                 </span>
                 <span class="out-hand">{{ out.handName }}</span>
               </div>
@@ -691,7 +865,11 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showCodeModal" class="outs-overlay" @click.self="showCodeModal = false">
+        <div
+          v-if="showCodeModal"
+          class="outs-overlay"
+          @click.self="showCodeModal = false"
+        >
           <div class="code-modal">
             <h3 class="code-title">Введите код доступа</h3>
             <input
@@ -706,7 +884,9 @@ const equityRingOffset = computed(() =>
               @keydown.enter="tryUnlock"
             />
             <p v-if="codeError" class="code-error-text">Неверный код</p>
-            <button class="btn btn-ai code-btn" @click="tryUnlock">Разблокировать</button>
+            <button class="btn btn-ai code-btn" @click="tryUnlock">
+              Разблокировать
+            </button>
           </div>
         </div>
       </Transition>
@@ -714,11 +894,21 @@ const equityRingOffset = computed(() =>
 
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showStrategyFullscreen" class="strategy-fullscreen" @click.self="showStrategyFullscreen = false">
+        <div
+          v-if="showStrategyFullscreen"
+          class="strategy-fullscreen"
+          @click.self="showStrategyFullscreen = false"
+        >
           <div class="strategy-fullscreen-inner">
             <div class="strategy-fullscreen-header">
               <h2 class="strategy-fullscreen-title">Стратегия</h2>
-              <button type="button" class="outs-close strategy-close" @click="showStrategyFullscreen = false">✕</button>
+              <button
+                type="button"
+                class="outs-close strategy-close"
+                @click="showStrategyFullscreen = false"
+              >
+                ✕
+              </button>
             </div>
             <div v-if="strategyLoading" class="strategy-loading">
               <div class="strategy-spinner"></div>
@@ -729,7 +919,6 @@ const equityRingOffset = computed(() =>
         </div>
       </Transition>
     </Teleport>
-
   </div>
 </template>
 
@@ -746,8 +935,8 @@ const equityRingOffset = computed(() =>
   margin-bottom: 2rem;
 }
 
-h1 .by{
-  font-size: .4em;
+h1 .by {
+  font-size: 0.4em;
   font-weight: 400;
   vertical-align: middle;
 }
@@ -760,7 +949,8 @@ h1 .by{
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  filter: drop-shadow(0 0 8px rgba(167, 139, 250, 0.4)) drop-shadow(0 0 16px rgba(124, 58, 237, 0.2));
+  filter: drop-shadow(0 0 8px rgba(167, 139, 250, 0.4))
+    drop-shadow(0 0 16px rgba(124, 58, 237, 0.2));
 }
 
 .subtitle {
@@ -989,8 +1179,13 @@ h1 .by{
 }
 
 @keyframes pulse-danger {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .reverse-title {
@@ -1102,7 +1297,6 @@ h1 .by{
   cursor: not-allowed;
 }
 
-
 .code-modal {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1155,9 +1349,16 @@ h1 .by{
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-6px); }
-  75% { transform: translateX(6px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
 }
 
 .stat-clickable {
@@ -1173,8 +1374,13 @@ h1 .by{
 }
 
 @keyframes pulse-outs {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .outs-overlay {
@@ -1373,7 +1579,9 @@ h1 .by{
 }
 
 @keyframes strategy-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .strategy-body {
